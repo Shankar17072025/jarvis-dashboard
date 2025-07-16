@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🚛 Jarvis Logistics Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <link rel="manifest" href="manifest.json">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js').then(() => {
+        console.log('Service Worker Registered');
+      });
+    }
+  </script>
+  <style>
+    .chart-container {
+      position: relative;
+      width: 100%;
+      max-width: 400px;
+      margin: auto;
+    }
+    canvas {
+      max-height: 350px !important;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans">
+
+  <!-- NAVIGATION -->
+  <nav class="bg-gradient-to-r from-purple-700 to-blue-700 p-4 text-white flex justify-between items-center shadow">
+    <h1 class="text-2xl font-bold">📦 Jarvis Logistics Center</h1>
+    <div class="space-x-4">
+      <a href="index.html" class="hover:underline">Events</a>
+      <a href="inventory.html" class="hover:underline">Inventory</a>
+      <a href="logistics.html" class="underline font-bold">Logistics</a>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="p-6 space-y-6">
+
+    <!-- SEARCH TOOLS -->
+    <div class="bg-white p-4 rounded shadow">
+      <div class="flex flex-col md:flex-row md:items-center md:space-x-4">
+        <input id="gpoSearch" oninput="applyFilters()" placeholder="🔍 Search by GPO Number" class="mb-2 md:mb-0 p-2 border border-gray-300 rounded w-full md:w-1/2" />
+        <select id="cityFilter" onchange="applyFilters()" class="p-2 border border-gray-300 rounded w-full md:w-1/4">
+          <option value="">🌍 Filter by City</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- SUMMARY BUTTONS -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <button onclick="showTableAndFilter('all')" class="bg-white p-4 rounded shadow text-center hover:bg-gray-200">
+        <p class="text-lg">📦 Total Shipments</p>
+        <h2 id="totalCount" class="text-3xl font-bold">0</h2>
+      </button>
+      <button onclick="showTableAndFilter('delivered')" class="bg-green-100 p-4 rounded shadow text-center hover:bg-green-200">
+        <p class="text-lg">✔️ Delivered</p>
+        <h2 id="deliveredCount" class="text-3xl font-bold text-green-800">0</h2>
+      </button>
+      <button onclick="showTableAndFilter('dispatched')" class="bg-yellow-100 p-4 rounded shadow text-center hover:bg-yellow-200">
+        <p class="text-lg">🚚 Dispatched</p>
+        <h2 id="dispatchedCount" class="text-3xl font-bold text-yellow-800">0</h2>
+      </button>
+      <button onclick="showTableAndFilter('pending')" class="bg-red-100 p-4 rounded shadow text-center hover:bg-red-200">
+        <p class="text-lg">🕓 Pending</p>
+        <h2 id="pendingCount" class="text-3xl font-bold text-red-800">0</h2>
+      </button>
+    </div>
+
+    <!-- PIE CHARTS -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-white p-4 rounded shadow chart-container">
+        <h3 class="text-lg font-semibold mb-2 text-center">🥧 Client-wise</h3>
+        <canvas id="clientPieChart"></canvas>
+      </div>
+      <div class="bg-white p-4 rounded shadow chart-container">
+        <h3 class="text-lg font-semibold mb-2 text-center">📍 City-wise</h3>
+        <canvas id="cityPieChart"></canvas>
+      </div>
+      <div class="bg-white p-4 rounded shadow chart-container">
+        <h3 class="text-lg font-semibold mb-2 text-center">📦 Status-wise</h3>
+        <canvas id="statusPieChart"></canvas>
+      </div>
+    </div>
+
+    <!-- TREND LINE CHART -->
+    <div class="bg-white p-4 rounded shadow chart-container">
+      <h3 class="text-lg font-semibold mb-2 text-center">📈 Shipment Trend (Last 30 Days)</h3>
+      <canvas id="shipmentTrendChart"></canvas>
+    </div>
+
+    <!-- AI INSIGHTS PANEL -->
+    <div class="bg-white p-4 rounded shadow">
+      <h3 class="text-lg font-semibold mb-2">🤖 Jarvis Insights</h3>
+      <p id="aiInsights" class="text-gray-700 italic">Analyzing data...</p>
+    </div>
+
+    <!-- DATA TABLE -->
+    <div id="tableContainer" class="bg-white p-4 rounded shadow block">
+      <h3 class="text-lg font-semibold mb-4">📋 Logistics Table View</h3>
+      <p class="text-sm text-gray-500 mb-2">Showing <span id="rowCount">0</span> matching records</p>
+      <table class="w-full text-sm table-auto">
+        <thead class="bg-gray-200 text-left">
+          <tr>
+            <th class="p-2">GPO</th>
+            <th class="p-2">Client</th>
+            <th class="p-2">City</th>
+            <th class="p-2">Boxes</th>
+            <th class="p-2">Status</th>
+          </tr>
+        </thead>
+        <tbody id="filteredTable"></tbody>
+      </table>
+    </div>
+
+    <p class="text-sm text-gray-500 text-right">Last synced: <span id="syncTime">--</span></p>
+  </main>
+
+  <!-- SCRIPT -->
+  <script>
+    const sheetURL = 'https://opensheet.elk.sh/1t2qqcJoHy9yElHdpZxVnvN5jlJaX38jcKxUCGi6DLvk/Logistics';
+    let allData = [];
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+      fetch(sheetURL)
+        .then(res => res.json())
+        .then(data => {
+          allData = data;
+          updateDashboard(data);
+          populateCityFilter(data);
+          applyFilters();
+          buildTrendChart(data);
+          generateAIInsights(data);
+        });
+    }, 30000);
+
+    fetch(sheetURL)
+      .then(res => res.json())
+      .then(data => {
+        allData = data;
+        updateDashboard(data);
+        populateCityFilter(data);
+        buildTrendChart(data);
+        generateAIInsights(data);
+      });
+
+    function updateDashboard(data) {
+      let total = 0, delivered = 0, dispatched = 0, pending = 0;
+      let clientMap = {}, cityMap = {}, statusMap = {};
+
+      data.forEach(row => {
+        const status = (row["Status"] || "Pending").toLowerCase();
+        const client = row["Client name"] || "Unknown";
+        const city = row["City"] || "Unknown";
+
+        total++;
+        if (status.includes("delivered")) delivered++;
+        else if (status.includes("dispatched")) dispatched++;
+        else pending++;
+
+        clientMap[client] = (clientMap[client] || 0) + 1;
+        cityMap[city] = (cityMap[city] || 0) + 1;
+        statusMap[status] = (statusMap[status] || 0) + 1;
+      });
+
+      document.getElementById("totalCount").textContent = total;
+      document.getElementById("deliveredCount").textContent = delivered;
+      document.getElementById("dispatchedCount").textContent = dispatched;
+      document.getElementById("pendingCount").textContent = pending;
+      document.getElementById("syncTime").textContent = new Date().toLocaleTimeString();
+
+      createPieChart('clientPieChart', clientMap);
+      createPieChart('cityPieChart', cityMap);
+      createPieChart('statusPieChart', statusMap);
+    }
+
+    function createPieChart(id, dataMap) {
+      new Chart(document.getElementById(id), {
+        type: 'pie',
+        data: {
+          labels: Object.keys(dataMap),
+          datasets: [{
+            data: Object.values(dataMap),
+            backgroundColor: ['#60a5fa', '#f87171', '#34d399', '#fbbf24', '#a78bfa', '#f472b6', '#38bdf8']
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom' },
+            datalabels: {
+              color: '#fff',
+              font: { weight: 'bold', size: 12 },
+              formatter: value => value
+            }
+          }
+        },
+        plugins: [ChartDataLabels]
+      });
+    }
+
+    function buildTrendChart(data) {
+      const trendMap = {};
+      const today = new Date();
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const key = d.toISOString().split('T')[0];
+        trendMap[key] = 0;
+      }
+
+      data.forEach(row => {
+        const dateStr = row["Date"];
+        if (!dateStr) return;
+        const dateKey = new Date(dateStr).toISOString().split('T')[0];
+        if (trendMap.hasOwnProperty(dateKey)) {
+          trendMap[dateKey]++;
+        }
+      });
+
+      const labels = Object.keys(trendMap).reverse();
+      const values = Object.values(trendMap).reverse();
+
+      new Chart(document.getElementById("shipmentTrendChart"), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Shipments per Day',
+            data: values,
+            fill: false,
+            borderColor: '#6366f1',
+            tension: 0.2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false }
+          }
+        }
+      });
+    }
+
+    function getStatusIcon(statusText) {
+      if (statusText.includes('delivered')) return '✔️ Delivered';
+      if (statusText.includes('dispatched')) return '🚚 Dispatched';
+      return '🕓 Pending';
+    }
+
+    function applyFilters() {
+      document.getElementById("tableContainer").style.display = 'block';
+      const gpoQuery = document.getElementById('gpoSearch').value.toLowerCase();
+      const cityQuery = document.getElementById('cityFilter').value.toLowerCase();
+
+      const filtered = allData.filter(row => {
+        const gpo = (row["GPO Number"] || '').toLowerCase();
+        const city = (row["City"] || '').toLowerCase();
+        return gpo.includes(gpoQuery) && (cityQuery === '' || city === cityQuery);
+      });
+      displayTable(filtered);
+    }
+
+    function displayTable(data) {
+      const body = document.getElementById("filteredTable");
+      const rowCount = document.getElementById("rowCount");
+      body.innerHTML = '';
+      rowCount.textContent = data.length;
+
+      data.forEach(row => {
+        const statusRaw = (row["Status"] || "Pending").toLowerCase();
+        const tr = document.createElement('tr');
+        const iconStatus = getStatusIcon(statusRaw);
+        tr.innerHTML = `
+          <td class="p-2">${row["GPO Number"]}</td>
+          <td class="p-2">${row["Client name"]}</td>
+          <td class="p-2">${row["City"]}</td>
+          <td class="p-2">${row["Box Count"]}</td>
+          <td class="p-2">${iconStatus}</td>
+        `;
+        body.appendChild(tr);
+      });
+    }
+
+    function showTableAndFilter(type) {
+      document.getElementById("tableContainer").style.display = 'block';
+      filterTable(type);
+      applyFilters();
+    }
+
+    function filterTable(type) {
+      const body = document.getElementById("filteredTable");
+      body.innerHTML = '';
+      allData.forEach(row => {
+        const statusRaw = (row["Status"] || "Pending").toLowerCase();
+        if (
+          type === 'all' ||
+          (type === 'delivered' && statusRaw.includes('delivered')) ||
+          (type === 'dispatched' && statusRaw.includes('dispatched')) ||
+          (type === 'pending' && !statusRaw.includes('delivered') && !statusRaw.includes('dispatched'))
+        ) {
+          const tr = document.createElement('tr');
+          const iconStatus = getStatusIcon(statusRaw);
+          tr.innerHTML = `
+            <td class="p-2">${row["GPO Number"]}</td>
+            <td class="p-2">${row["Client name"]}</td>
+            <td class="p-2">${row["City"]}</td>
+            <td class="p-2">${row["Box Count"]}</td>
+            <td class="p-2">${iconStatus}</td>
+          `;
+          body.appendChild(tr);
+        }
+      });
+    }
+
+    function populateCityFilter(data) {
+      const cities = new Set();
+      data.forEach(row => cities.add(row["City"]));
+      const dropdown = document.getElementById('cityFilter');
+      dropdown.innerHTML = `<option value="">🌍 Filter by City</option>`;
+      [...cities].sort().forEach(city => {
+        const opt = document.createElement('option');
+        opt.value = city;
+        opt.textContent = city;
+        dropdown.appendChild(opt);
+      });
+    }
+
+    function generateAIInsights(data) {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const cityPendingMap = {};
+
+      data.forEach(row => {
+        const status = (row["Status"] || '').toLowerCase();
+        const dateStr = row["Date"];
+        const city = row["City"] || 'Unknown';
+        if (!dateStr) return;
+        const dateObj = new Date(dateStr);
+
+        if (status.includes("pending") && dateObj >= weekAgo) {
+          cityPendingMap[city] = (cityPendingMap[city] || 0) + 1;
+        }
+      });
+
+      let topCity = '', maxPending = 0;
+      for (const city in cityPendingMap) {
+        if (cityPendingMap[city] > maxPending) {
+          topCity = city;
+          maxPending = cityPendingMap[city];
+        }
+      }
+
+      const insight = topCity
+        ? `📍 ${topCity} has the most pending shipments this week (${maxPending}).`
+        : `✅ No pending shipments in the last 7 days.`;
+
+      document.getElementById("aiInsights").textContent = insight;
+    }
+  </script>
+
+</body>
+</html>
