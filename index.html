@@ -1,0 +1,272 @@
+<!-- 🚀 Jarvis Events Dashboard – Phase 2.5 Upgrade -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>📅 Jarvis Events Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/confetti-js"></script>
+  <style>
+    body {
+      background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+      color: white;
+    }
+    .card {
+      @apply bg-white bg-opacity-10 backdrop-blur-lg p-4 rounded shadow text-white transition-transform hover:scale-105 border border-white border-opacity-20 hover:border-pink-400;
+    }
+    .neon {
+      box-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 40px #0ff;
+    }
+    #chartSection {
+      transition: all 0.5s ease-in-out;
+    }
+  </style>
+</head>
+<body class="font-sans">
+  <nav class="bg-gradient-to-r from-indigo-700 to-blue-700 p-4 text-white flex justify-between items-center shadow">
+    <h1 class="text-2xl font-bold">📅 Jarvis Events Center</h1>
+    <div class="space-x-4">
+      <a href="index.html" class="underline font-bold">Events</a>
+      <a href="inventory.html" class="hover:underline">Inventory</a>
+      <a href="logistics.html" class="hover:underline">Logistics</a>
+    </div>
+  </nav>
+
+  <main class="p-6 space-y-6">
+    <!-- Search & Summary -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <input id="searchInput" oninput="applyEventFilters()" placeholder="🔍 Search by Event, PO, or City..." class="p-2 rounded shadow text-black w-full">
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <div class="card">
+          <p>Total Events</p>
+          <h2 id="totalCount" class="text-2xl font-bold">0</h2>
+        </div>
+        <div class="card">
+          <p>Upcoming This Month</p>
+          <h2 id="upcomingCount" class="text-2xl font-bold">0</h2>
+        </div>
+        <div class="card">
+          <p>Top City</p>
+          <h2 id="topCity" class="text-lg font-semibold">--</h2>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <select id="filterCity" onchange="applyEventFilters()" class="p-2 rounded shadow text-black">
+        <option value="">🌍 Filter by City</option>
+      </select>
+      <select id="filterClient" onchange="applyEventFilters()" class="p-2 rounded shadow text-black">
+        <option value="">🏢 Filter by Client</option>
+      </select>
+      <select id="filterMonth" onchange="applyEventFilters()" class="p-2 rounded shadow text-black">
+        <option value="">🗓️ Filter by Month</option>
+      </select>
+    </div>
+
+    <!-- Toggle View -->
+    <div class="text-right">
+      <button onclick="toggleTable()" class="bg-white text-black px-4 py-2 rounded shadow hover:bg-blue-200">📊 Toggle Table View</button>
+    </div>
+
+    <!-- Charts Section -->
+    <div id="chartSection" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="card">
+        <h3 class="text-lg font-semibold mb-2 text-center">📍 Events by City</h3>
+        <canvas id="cityEventsChart"></canvas>
+      </div>
+      <div class="card">
+        <h3 class="text-lg font-semibold mb-2 text-center">🏢 Events by Client</h3>
+        <canvas id="clientEventsChart"></canvas>
+      </div>
+      <div class="card">
+        <h3 class="text-lg font-semibold mb-2 text-center">🗓️ Events by Month</h3>
+        <canvas id="monthEventsChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Table Section -->
+    <div id="tableSection" class="card mt-6 hidden">
+      <h3 class="text-lg font-semibold mb-4">📋 Events Table</h3>
+      <table class="w-full text-sm table-auto">
+        <thead class="bg-white bg-opacity-20">
+          <tr>
+            <th class="p-2">Event Name</th>
+            <th class="p-2">Client</th>
+            <th class="p-2">City</th>
+            <th class="p-2">Event Date</th>
+            <th class="p-2">Month</th>
+            <th class="p-2">PO Number</th>
+            <th class="p-2">Packages</th>
+            <th class="p-2">Status</th>
+          </tr>
+        </thead>
+        <tbody id="eventsTableBody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Confetti Canvas -->
+  <canvas id="confettiCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999"></canvas>
+
+  <script>
+    const sheetURL = 'https://opensheet.elk.sh/1t2qqcJoHy9yElHdpZxVnvN5jlJaX38jcKxUCGi6DLvk/Events';
+    let allEvents = [];
+
+    function fetchData() {
+      fetch(sheetURL)
+        .then(res => res.json())
+        .then(data => {
+          allEvents = data;
+          populateEventFilters(data);
+          applyEventFilters();
+        });
+    }
+
+    fetchData();
+    setInterval(fetchData, 30000);
+
+    function populateEventFilters(data) {
+      const cities = new Set(), clients = new Set(), months = new Set();
+      data.forEach(row => {
+        cities.add(row.City);
+        clients.add(row.Client);
+        months.add(row.Month);
+      });
+      filterCity.innerHTML = '<option value="">🌍 Filter by City</option>' + [...cities].map(c => `<option>${c}</option>`).join('');
+      filterClient.innerHTML = '<option value="">🏢 Filter by Client</option>' + [...clients].map(c => `<option>${c}</option>`).join('');
+      filterMonth.innerHTML = '<option value="">🗓️ Filter by Month</option>' + [...months].map(m => `<option>${m}</option>`).join('');
+    }
+
+    function applyEventFilters() {
+      const city = filterCity.value;
+      const client = filterClient.value;
+      const month = filterMonth.value;
+      const search = document.getElementById('searchInput').value.toLowerCase();
+
+      // Hide charts if searching or filtering
+      const chart = document.getElementById("chartSection");
+      if (search || city || client || month) {
+        chart.classList.add("hidden");
+      } else {
+        chart.classList.remove("hidden");
+      }
+
+      const filtered = allEvents.filter(row =>
+        (city === '' || row.City === city) &&
+        (client === '' || row.Client === client) &&
+        (month === '' || row.Month === month) &&
+        (
+          row["Event name"]?.toLowerCase().includes(search) ||
+          row["PO number"]?.toLowerCase().includes(search) ||
+          row.City?.toLowerCase().includes(search)
+        )
+      );
+
+      updateSummary(filtered);
+      renderEventCharts(filtered);
+      displayEventTable(filtered);
+    }
+
+    function updateSummary(data) {
+      document.getElementById('totalCount').textContent = data.length;
+      const month = new Date().toLocaleString('default', { month: 'long' });
+      const upcoming = data.filter(row => row.Month === month);
+      document.getElementById('upcomingCount').textContent = upcoming.length;
+      const cityCount = {};
+      data.forEach(row => cityCount[row.City] = (cityCount[row.City] || 0) + 1);
+      const topCity = Object.entries(cityCount).sort((a,b)=>b[1]-a[1])[0];
+      document.getElementById('topCity').textContent = topCity ? topCity[0] : '--';
+    }
+
+    function renderEventCharts(data) {
+      const cityMap = {}, clientMap = {}, monthMap = {};
+      data.forEach(row => {
+        cityMap[row.City] = (cityMap[row.City] || 0) + 1;
+        clientMap[row.Client] = (clientMap[row.Client] || 0) + 1;
+        monthMap[row.Month] = (monthMap[row.Month] || 0) + 1;
+      });
+      renderPieChart('cityEventsChart', cityMap);
+      renderPieChart('clientEventsChart', clientMap);
+      renderPieChart('monthEventsChart', monthMap);
+    }
+
+    function renderPieChart(id, map) {
+      const ctx = document.getElementById(id).getContext('2d');
+      if (window[id + "_chart"]) window[id + "_chart"].destroy();
+      window[id + "_chart"] = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(map),
+          datasets: [{
+            data: Object.values(map),
+            backgroundColor: [
+              'rgba(255, 99, 132, 0.8)',
+              'rgba(54, 162, 235, 0.8)',
+              'rgba(255, 206, 86, 0.8)',
+              'rgba(75, 192, 192, 0.8)',
+              'rgba(153, 102, 255, 0.8)',
+              'rgba(255, 159, 64, 0.8)'
+            ],
+            borderColor: '#fff',
+            borderWidth: 2,
+            hoverOffset: 8
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                color: 'white',
+                font: {
+                  size: 12,
+                  weight: 'bold'
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function displayEventTable(data) {
+      const body = document.getElementById("eventsTableBody");
+      body.innerHTML = '';
+      data.forEach(row => {
+        const status = row["CPT Logisctic status"] || '';
+        if (status.toLowerCase().includes('delivered')) confettiEffect();
+        body.innerHTML += `
+          <tr class="hover:neon">
+            <td class="p-2">${row["Event name"]}</td>
+            <td class="p-2">${row["Client"]}</td>
+            <td class="p-2">${row["City"]}</td>
+            <td class="p-2">${row["Event Date"]}</td>
+            <td class="p-2">${row["Month"]}</td>
+            <td class="p-2">${row["PO number"]}</td>
+            <td class="p-2">${row["No of Packages"]}</td>
+            <td class="p-2">${status}</td>
+          </tr>`;
+      });
+    }
+
+    function toggleTable() {
+      const table = document.getElementById("tableSection");
+      const chart = document.getElementById("chartSection");
+      table.classList.toggle("hidden");
+      chart.classList.toggle("hidden");
+    }
+
+    function confettiEffect() {
+      const confettiSettings = { target: 'confettiCanvas', max: 100, size: 1.2, animate: true };
+      const confetti = new ConfettiGenerator(confettiSettings);
+      confetti.render();
+      setTimeout(() => confetti.clear(), 2000);
+    }
+  </script>
+</body>
+</html>
